@@ -126,4 +126,4 @@ To deploy these solutions:
 **Use Case:** Crucial for avoiding extra costs associated with unutilized Elastic IPs.
 
 ## Contributing
-We welcome contributions to this repository. If you have suggestions or improvements, please submit a pull request or open an issue. For more details, check out our [CONTRIBUTING.md](CONTRIBUTING.md) file.
+I welcome contributions to this repository. If you have suggestions or improvements, please submit a pull request or open an issue.
