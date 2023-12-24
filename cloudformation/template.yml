@@ -1,0 +1,689 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Custom Lambdas for Cost-Optimisation
+
+Resources:
+
+################################  ALB Redirection Check  ################################
+
+  ALBRedirectionLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ALBRedirectionLambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:CreateRule
+                  - elasticloadbalancing:ModifyListener
+                  - elasticloadbalancing:CreateListener 
+                  - elasticloadbalancing:DescribeRules
+                  - ec2:DescribeSecurityGroupRules   
+                  - ec2:AuthorizeSecurityGroupIngress 
+                  - sns:Publish
+                Resource: '*'
+
+
+  ALBRedirectionLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ALBRedirectionLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/ALBRedirection/
+
+      Timeout: 60
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+
+
+  ALBRedirectionLambdaSchedule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      ScheduleExpression: 'rate(4 days)'
+      Targets:
+        - Arn: !GetAtt ALBRedirectionLambdaFunction.Arn
+          Id: 'ALBRedirectionLambdaFunctionTarget'
+
+
+  ALBRedirectionLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ALBRedirectionLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ALBRedirectionLambdaSchedule.Arn
+
+
+###################### Cloudwatch Logs Retention Check #######################
+
+  CloudwatchLogGroupRetentionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudwatchLogGroupRetentionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - logs:DescribeLogGroups
+                  - logs:PutRetentionPolicy
+                  - sns:Publish
+                Resource: '*'
+
+  CloudwatchLogGroupRetentionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt CloudwatchLogGroupRetentionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/CloudwatchLogGroupRetention/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300
+
+  CloudwatchLogGroupRetentionSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(6 hours)'
+      Targets:
+        - Arn: !GetAtt CloudwatchLogGroupRetentionFunction.Arn
+          Id: "CloudwatchLogGroupRetentionTarget"
+
+  CloudwatchLogGroupRetentionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt CloudwatchLogGroupRetentionFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt CloudwatchLogGroupRetentionSchedule.Arn
+
+
+##################### RDS Underutilization Check ############################
+
+
+  RDSUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*'
+
+  RDSUnderUtilizationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSUnderUtilizationLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300 
+
+  RDSUnderUtilizationScheduledEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(7 days)'
+      Targets:
+        - Arn: !GetAtt RDSUnderUtilizationLambdaFunction.Arn
+          Id: "RDSUnderUtilizationEventTarget"
+
+  RDSUnderUtilizationLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt RDSUnderUtilizationLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt RDSUnderUtilizationScheduledEventRule.Arn
+
+  RDSUnderUtilizationCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/RDSUnderUtilization
+      RetentionInDays: 14  
+
+##################### RDS High Utilization Check ######################
+
+
+  RDSHighUtilizationCheckLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSHighUtilizationCheckLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*' 
+
+  RDSHighUtilizationCheckLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSHighUtilizationCheckLambdaRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSHighUtilization/
+      Environment:
+        Variables:
+           SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300  
+  
+  RDSHighUtilizationLambdaScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(6 hours)'
+      Targets:
+        - Arn: !GetAtt RDSHighUtilizationCheckLambdaFunction.Arn
+          Id: "RDSHighUtilizationCheckLambdaTarget"
+
+  RDSHighUtilizationLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt RDSHighUtilizationCheckLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt RDSHighUtilizationLambdaScheduleRule.Arn
+
+  RDSHighUtilizationCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/RDSHighUtilization
+      RetentionInDays: 14  
+
+###################### PART 1: RDS Idle Connections: Identify and Stop and Put Item to DynamoDB ####################
+
+
+  LambdaRDSIdleConnectionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaRDSIdleConnectionsCheckPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - rds:CreateDBSnapshot
+                  - rds:StopDBInstance
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                  - dynamodb:PutItem
+                Resource: "*"
+
+  RDSIdleConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: rds-idle-connections-table
+      AttributeDefinitions:
+        - AttributeName: DBInstanceIdentifier
+          AttributeType: S
+      KeySchema:
+        - AttributeName: DBInstanceIdentifier
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  RDSIdleConnectionsCheckLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRDSIdleConnectionsExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSIdleConnectionsCheck/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
+      Timeout: 300 
+  LambdaRDSIdleConnectionsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RDSIdleConnectionsCheckLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RDSIdleConnectionsCheckRule.Arn
+
+  RDSIdleConnectionsCheckRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(6 hours)"
+      Targets:
+        - Arn: !GetAtt RDSIdleConnectionsCheckLambda.Arn
+          Id: "RDSIdleConnectionsCheckTarget"
+
+  RDSIdleConnectionsCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/RDSIdleConnections
+      RetentionInDays: 14  
+
+###################### PART 2: RDS Idle Connections: Check DynamoDB Metadata and Take Remediation Action ####################
+
+  RDSIdleCheckCleanupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaRDSIdleCheckCleanupPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - ec2:DescribeInstances
+                  - rds:DescribeDBInstances
+                  - rds:CreateDBSnapshot
+                  - rds:DeleteDBInstance
+                  - dynamodb:Scan
+                  - dynamodb:DeleteItem
+                  - sns:Publish
+                Resource: "*"
+
+  RDSIdleCheckCleanupLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSIdleCheckCleanupLambdaRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSIdleConnectionsRemediation/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
+      Timeout: 300 
+
+
+  RDSIdleCheckCleanupRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(6 hours)"
+      Targets:
+        - Arn: !GetAtt RDSIdleCheckCleanupLambda.Arn
+          Id: "RDSIdleCheckCleanupTarget"
+
+  RDSIdleCheckCleanupLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RDSIdleCheckCleanupLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RDSIdleCheckCleanupRule.Arn
+
+
+################# PART 1: EC2 Low Utilization:  Identify and Stop and Put Item to DynamoDB ####################
+
+  EC2LowUtilizationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaEC2LowUtilizationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:StopInstances
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                  - dynamodb:PutItem
+                Resource: "*"
+
+  EC2LowUtilizationCheckLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt EC2LowUtilizationLambdaRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/EC2LowUtilizationCheck/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
+      Timeout: 300 
+
+
+  EC2IdleUsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ec2-idle-usage-table
+      AttributeDefinitions:
+        - AttributeName: InstanceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: InstanceId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+
+  EC2LowUtilizationCheckRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(3 days)"
+      Targets:
+        - Arn: !GetAtt EC2LowUtilizationCheckLambda.Arn
+          Id: "EC2LowUtilizationCheckTarget"
+
+  EC2LowUtilizationCheckLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EC2LowUtilizationCheckLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EC2LowUtilizationCheckRule.Arn
+
+
+################# PART 2: EC2 Low Utilization: Check DynamoDB Metadata and Take Remediation Action ####################
+
+  EC2LowUtilizationRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaEC2LowUtilizationRemediationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:TerminateInstances
+                  - dynamodb:DescribeTable
+                  - ec2:DescribeRegions
+                  - ec2:CreateSnapshot
+                  - sns:Publish
+                  - dynamodb:Scan
+                  - dynamodb:DeleteItem
+                Resource: "*"
+
+  EC2LowUtilizationRemediationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt EC2LowUtilizationRemediationLambdaRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/EC2LowUtilizationRemediation/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
+      Timeout: 300
+
+  EC2LowUtilizationRemediationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(1 day)"
+      Targets:
+        - Arn: !GetAtt EC2LowUtilizationRemediationLambdaFunction.Arn
+          Id: "EC2LowUtilizationRemediationLambdaTarget"
+
+  EC2LowUtilizationRemediationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EC2LowUtilizationRemediationLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EC2LowUtilizationRemediationRule.Arn
+
+
+##################### ECS Service Underutilization Check ######################
+
+  ECSServiceUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSServiceUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*'
+
+  ECSServiceUnderUtilizationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ECSServiceUnderUtilizationLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/ECSServiceUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300
+
+  ECSServiceUnderUtilizationScheduledEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(3 days)'
+      Targets:
+        - Arn: !GetAtt ECSServiceUnderUtilizationLambdaFunction.Arn
+          Id: "ECSServiceUnderUtilizationEventTarget"
+
+  ECSServiceUnderUtilizationLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ECSServiceUnderUtilizationLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt ECSServiceUnderUtilizationScheduledEventRule.Arn
+
+  ECSServiceUnderUtilizationCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/ECSServiceUnderUtilization
+      RetentionInDays: 14
+
+
+##################### ELB Underutilization Check ##############################
+
+  ELBUnderutilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ELBUnderutilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - cloudwatch:GetMetricStatistics
+                  - ec2:DescribeRegions
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - sns:Publish
+                Resource: '*'
+
+  ELBUnderutilizationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ELBUnderutilizationLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/ALBUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300
+
+  ELBUnderutilizationScheduledEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(3 days)'
+      Targets:
+        - Arn: !GetAtt ELBUnderutilizationLambdaFunction.Arn
+          Id: "ELBUnderutilizationEventTarget"
+
+  ELBUnderutilizationLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ELBUnderutilizationLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt ELBUnderutilizationScheduledEventRule.Arn
+
+  ELBUnderutilizationCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/ELBUnderutilization
+      RetentionInDays: 14
+
+######################## Elastic IP Check ############################
+
+  ElasticIPCheckLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ElasticIPCheckLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRegions
+                  - sns:Publish
+                Resource: '*'
+
+  ElasticIPCheckLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ElasticIPCheckLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/ElasticIPUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+      Timeout: 300 
+
+  ElasticIPCheckScheduledEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(3 days)'
+      Targets:
+        - Arn: !GetAtt ElasticIPCheckLambdaFunction.Arn
+          Id: "ElasticIPCheckEventTarget"
+
+  ElasticIPCheckLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ElasticIPCheckLambdaFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt ElasticIPCheckScheduledEventRule.Arn
+
+  ElasticIPCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/ElasticIPCheck
+      RetentionInDays: 14  
