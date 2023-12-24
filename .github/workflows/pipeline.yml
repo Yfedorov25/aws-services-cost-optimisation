@@ -31,9 +31,11 @@ jobs:
 
     - name: SAM Build
       run: sam build --debug
+      working-directory: ./cloudformation
 
     - name: Change Directory
       run: cd .aws-sam/build
+      working-directory: ./cloudformation
 
     - name: List Directory Contents
       run: ls -l
