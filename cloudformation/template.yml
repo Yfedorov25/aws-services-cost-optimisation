@@ -5,6 +5,11 @@ Resources:
 
 ################################  ALB Redirection Check  ################################
 
+  ServicesCostOptimisationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: Services-Cost-Optimisation-Topic
+
   ALBRedirectionLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -46,7 +51,7 @@ Resources:
       Timeout: 60
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
 
 
   ALBRedirectionLambdaSchedule:
@@ -101,7 +106,7 @@ Resources:
       CodeUri: ../lambdas/CloudwatchLogGroupRetention/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300
 
   CloudwatchLogGroupRetentionSchedule:
@@ -156,7 +161,7 @@ Resources:
       CodeUri: ../lambdas/RDSUnderUtilization/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300 
 
   RDSUnderUtilizationScheduledEventRule:
@@ -216,7 +221,7 @@ Resources:
       CodeUri: ../lambdas/RDSHighUtilization/
       Environment:
         Variables:
-           SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+           SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300  
   
   RDSHighUtilizationLambdaScheduleRule:
@@ -291,7 +296,7 @@ Resources:
       CodeUri: ../lambdas/RDSIdleConnectionsCheck/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
           DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
       Timeout: 300 
   LambdaRDSIdleConnectionsInvokePermission:
@@ -354,7 +359,7 @@ Resources:
       CodeUri: ../lambdas/RDSIdleConnectionsRemediation/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
           DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
       Timeout: 300 
 
@@ -412,7 +417,7 @@ Resources:
       CodeUri: ../lambdas/EC2LowUtilizationCheck/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
           DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
       Timeout: 300 
 
@@ -485,7 +490,7 @@ Resources:
       CodeUri: ../lambdas/EC2LowUtilizationRemediation/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
           DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
       Timeout: 300
 
@@ -542,7 +547,7 @@ Resources:
       CodeUri: ../lambdas/ECSServiceUnderUtilization/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300
 
   ECSServiceUnderUtilizationScheduledEventRule:
@@ -604,7 +609,7 @@ Resources:
       CodeUri: ../lambdas/ALBUnderUtilization/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300
 
   ELBUnderutilizationScheduledEventRule:
@@ -663,7 +668,7 @@ Resources:
       CodeUri: ../lambdas/ElasticIPUnderUtilization/
       Environment:
         Variables:
-          SNS_TOPIC_ARN: !Ref GeneralNotificationTopic
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
       Timeout: 300 
 
   ElasticIPCheckScheduledEventRule:
