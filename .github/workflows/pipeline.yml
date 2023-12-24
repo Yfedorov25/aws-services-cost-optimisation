@@ -50,4 +50,5 @@ jobs:
 
     - name: SAM Deploy
       run: |
-        sam deploy --stack-name ${{ env.STACK_NAME }} --region ${{ env.AWS_DEFAULT_REGION }} --template-file template.yaml --capabilities CAPABILITY_IAM --no-confirm-changeset --resolve-s3
+        sam deploy --stack-name ${{ env.STACK_NAME }} --region ${{ env.AWS_DEFAULT_REGION }} --template-file .aws-sam/build/template.yaml --capabilities CAPABILITY_IAM --no-confirm-changeset --resolve-s3
+      working-directory: ./cloudformation
