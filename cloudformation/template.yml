@@ -13,6 +13,30 @@ Resources:
     Properties:
       TopicName: Services-Cost-Optimisation-Topic
 
+  RDSIdleConnectionsTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: rds-idle-connections-table
+      PrimaryKey:
+        Name: DBInstanceIdentifier
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5      
+
+  EC2IdleUsageTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: ec2-idle-usage-table
+      PrimaryKey:
+        Name: InstanceId
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+################################  ALB Redirection Check  ################################
+
   ALBRedirectionLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -58,7 +82,9 @@ Resources:
           Properties:
             Schedule: rate(4 days)
 
-    
+
+###################### Cloudwatch Logs Retention Check #######################
+
   CloudwatchLogGroupRetentionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -97,3 +123,396 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(4 days)
+
+
+##################### RDS Underutilization Check ############################
+
+  RDSUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*'
+
+  RDSUnderUtilizationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSUnderUtilizationLambdaExecutionRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(4 days)
+
+
+##################### RDS High Utilization ######################
+
+  RDSHighUtilizationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSHighUtilizationCheckLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*' 
+
+  RDSHighUtilizationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSHighUtilizationLambdaRole.Arn
+      Runtime: python3.8
+      CodeUri: ../lambdas/RDSHighUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(4 days)
+
+###################### PART 1: RDS Idle Connections: Identify and Stop and Put Item to DynamoDB ####################
+
+
+  LambdaRDSIdleConnectionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaRDSIdleConnectionsCheckPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - rds:DescribeDBInstances
+                  - rds:CreateDBSnapshot
+                  - rds:StopDBInstance
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                  - dynamodb:PutItem
+                Resource: "*"
+
+  RDSIdleConnectionsCheckLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRDSIdleConnectionsExecutionRole.Arn
+      CodeUri: ../lambdas/RDSIdleConnectionsCheck/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+          DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+
+###################### PART 2: RDS Idle Connections: Check DynamoDB Metadata and Take Remediation Action ####################
+
+  RDSIdleCheckCleanupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaRDSIdleCheckCleanupPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - ec2:DescribeInstances
+                  - rds:DescribeDBInstances
+                  - rds:CreateDBSnapshot
+                  - rds:DeleteDBInstance
+                  - dynamodb:Scan
+                  - dynamodb:DeleteItem
+                  - sns:Publish
+                Resource: "*"
+
+
+  RDSIdleCheckCleanupLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt RDSIdleCheckCleanupLambdaRole.Arn
+      CodeUri: ../lambdas/RDSIdleConnectionsRemediation/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+          DYNAMODB_TABLE_NAME: !Ref RDSIdleConnectionsTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+
+
+################# PART 1: EC2 Low Utilization:  Identify and Stop and Put Item to DynamoDB ####################
+
+  EC2LowUtilizationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaEC2LowUtilizationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:StopInstances
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                  - dynamodb:PutItem
+                Resource: "*"
+
+  EC2LowUtilizationCheckLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt EC2LowUtilizationLambdaRole.Arn
+      CodeUri: ../lambdas/EC2LowUtilizationCheck/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+          DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+
+
+
+################# PART 2: EC2 Low Utilization: Check DynamoDB Metadata and Take Remediation Action ####################
+
+  EC2LowUtilizationRemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaEC2LowUtilizationRemediationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:TerminateInstances
+                  - dynamodb:DescribeTable
+                  - ec2:DescribeRegions
+                  - ec2:CreateSnapshot
+                  - sns:Publish
+                  - dynamodb:Scan
+                  - dynamodb:DeleteItem
+                Resource: "*"
+
+  EC2LowUtilizationRemediationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt EC2LowUtilizationRemediationLambdaRole.Arn
+      CodeUri: ../lambdas/EC2LowUtilizationRemediation/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+          DYNAMODB_TABLE_NAME: !Ref EC2IdleUsageTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+
+
+##################### ECS Service Underutilization Check ######################
+
+  ECSServiceUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSServiceUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - ec2:DescribeRegions
+                  - cloudwatch:GetMetricStatistics
+                  - sns:Publish
+                Resource: '*'
+
+  ECSServiceUnderUtilizationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ECSServiceUnderUtilizationLambdaExecutionRole.Arn
+      CodeUri: ../lambdas/ECSServiceUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(3 days)
+
+
+##################### ELB Underutilization Check ##############################
+
+  ELBUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ELBUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - cloudwatch:GetMetricStatistics
+                  - ec2:DescribeRegions
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - sns:Publish
+                Resource: '*'
+
+  ELBUnderUtilizationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ELBUnderUtilizationLambdaExecutionRole.Arn
+      CodeUri: ../lambdas/ELBUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(3 days)
+
+
+######################## Elastic IP Check ############################
+
+  ElasticIPUnderUtilizationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ElasticIPUnderUtilizationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRegions
+                  - sns:Publish
+                Resource: '*'
+
+  ElasticIPUnderUtilizationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt ElasticIPUnderUtilizationLambdaExecutionRole.Arn
+      CodeUri: ../lambdas/ElasticIPUnderUtilization/
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(3 days)
