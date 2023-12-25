@@ -436,7 +436,7 @@ Resources:
 
 ##################### ELB Underutilization Check ##############################
 
-  ELBUnderUtilizationLambdaExecutionRole:
+  ALBUnderUtilizationLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -447,7 +447,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: ELBUnderUtilizationLambdaPolicy
+        - PolicyName: ALBUnderUtilizationLambdaPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -461,11 +461,11 @@ Resources:
                   - sns:Publish
                 Resource: '*'
 
-  ELBUnderUtilizationLambdaFunction:
+  ALBUnderUtilizationLambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: index.lambda_handler
-      Role: !GetAtt ELBUnderUtilizationLambdaExecutionRole.Arn
+      Role: !GetAtt ALBUnderUtilizationLambdaExecutionRole.Arn
       CodeUri: ../lambdas/ELBUnderUtilization/
       Environment:
         Variables:
