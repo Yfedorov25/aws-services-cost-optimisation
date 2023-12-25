@@ -466,7 +466,7 @@ Resources:
     Properties:
       Handler: index.lambda_handler
       Role: !GetAtt ALBUnderUtilizationLambdaExecutionRole.Arn
-      CodeUri: ../lambdas/ELBUnderUtilization/
+      CodeUri: ../lambdas/ALBUnderUtilization/
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref ServicesCostOptimisationTopic
