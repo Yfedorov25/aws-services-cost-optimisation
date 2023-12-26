@@ -9,7 +9,6 @@ This repository comprises a series of AWS Lambda functions and CloudFormation te
 - [Deployment Instructions](#deployment-instructions)
 - [Solutions Description](#solutions-description)
 - [Contributing](#contributing)
-- [License](#license)
 
 ## Solutions Overview
 The `aws-lambda-cost-optimization` repository includes the following solutions:
